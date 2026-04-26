@@ -1,0 +1,37 @@
+import org.apache.spark.sql.SparkSession
+
+val spark = SparkSession.builder
+  .appName("TextCleaningStream")
+  .master("local[*]")
+  .getOrCreate()
+
+import spark.implicits._
+
+val stopWords = Seq("is", "the", "a", "an", "and", "to")
+
+val lines = spark.readStream
+  .format("socket")
+  .option("host", "localhost")
+  .option("port", 9999)
+  .load()
+
+val cleaned = lines.as[String].map { line =>
+  line.toLowerCase
+    .trim
+    .replaceAll("\\s+", " ")
+    .replaceAll("[^a-zA-Z ]", "")
+    .split(" ")
+    .filter(w => w.nonEmpty && !stopWords.contains(w))
+    .map {
+      case w if w.endsWith("ing") => w.dropRight(3)
+      case w if w.endsWith("ed")  => w.dropRight(2)
+      case w => w
+    }
+    .mkString(" ")
+}
+
+cleaned.writeStream
+  .outputMode("append")
+  .format("console")
+  .start()
+  .awaitTermination()
